@@ -44,7 +44,7 @@ app.post("/api/v1/order", async (req, res: any) => {
     console.log(Orderbook);
 
     return res.json({
-        OrderId: orderid,
+        status, executedQty, fills
 
     })
 })
@@ -61,11 +61,11 @@ interface Fill {
 }
 
 function fillOrder(orderid: string, quantity: number, price: number, side: "buy" | "sell", kind?: "ioc"): { status: "Rejected" | "Accepted", executedQty: number, fills: Fill[] } {
-    const executedQty = 0;
+    let executedQty = 0;
     const fills: Fill[] = [];
 
     const MaximumFillAmount = getFillAmount(quantity, side, price);
-    console.log(MaximumFillAmount);
+
 
     if (MaximumFillAmount < quantity && kind === "ioc") {
         return { status: 'Rejected', executedQty: MaximumFillAmount, fills: [] }
@@ -76,16 +76,24 @@ function fillOrder(orderid: string, quantity: number, price: number, side: "buy"
     if (side === "buy") {
 
         Orderbook.ask.forEach((o) => {
-            if (o.price <= price) {
+            if (o.price <= price && quantity > 0) {
+                const filledQuantity = Math.min(o.quantity, quantity);
+                executedQty += filledQuantity;
+                quantity -= filledQuantity;
+                o.quantity -= filledQuantity;
+                OrderBookwithQuantity.ask[o.price] -= filledQuantity;
+                fills.push({
+                    quantity: filledQuantity,
+                    side: "buy",
+                    tradeId: GLOBAL_TRADE_ID++
+                })
 
-                quantity -= Math.min(o.quantity, quantity);
+                if (o.quantity === 0) {
+                    Orderbook.ask.splice(Orderbook.ask.indexOf(o), 1)
+                }
 
-                if (quantity == 0) {
-                    fills.push({
-                        quantity: quantity,
-                        side: "buy",
-                        tradeId: GLOBAL_TRADE_ID++
-                    })
+                if (OrderBookwithQuantity.ask[o.price] === 0) {
+                    delete OrderBookwithQuantity.ask[o.price];
                 }
             }
 
@@ -94,48 +102,67 @@ function fillOrder(orderid: string, quantity: number, price: number, side: "buy"
     }
     else {
         Orderbook.bid.forEach((o) => {
-            if (o.price >= price) {
-                quantity -= Math.min(o.quantity, quantity);
+            if (o.price >= price && quantity > 0) {
+                const filledQuantity = Math.min(o.quantity, quantity);
+                executedQty += filledQuantity;
+                quantity -= filledQuantity;
+                o.quantity -= filledQuantity;
+                OrderBookwithQuantity.bids[o.price] -= filledQuantity;
+                fills.push({
+                    quantity: filledQuantity,
+                    side: "sell",
+                    tradeId: GLOBAL_TRADE_ID++
+                })
+
+                if (o.quantity === 0) {
+                    Orderbook.bid.splice(Orderbook.bid.indexOf(o), 1)
+                }
+
+                if (OrderBookwithQuantity.bids[o.price] === 0) {
+                    delete OrderBookwithQuantity.bids[o.price];
+                }
             }
 
         })
     }
 
 
-    if (quantity !== 0 && side == "buy") {
+    if (quantity !== 0) {
 
-        if (OrderBookwithQuantity.bids[price]) {
-            OrderBookwithQuantity.bids[price] += quantity;
+        if (side == "buy") {
+
+            if (OrderBookwithQuantity.bids[price]) {
+                OrderBookwithQuantity.bids[price] += quantity;
+            }
+            else
+                OrderBookwithQuantity.bids[price] = quantity;
+
+            Orderbook.bid.push({
+                price: price,
+                quantity: quantity,
+                orderId: orderid,
+                side: "bid"
+            })
         }
-        else
-            OrderBookwithQuantity.bids[price] = quantity;
 
-        Orderbook.bid.push({
-            price: price,
-            quantity: quantity,
-            orderId: orderid,
-            side: "bid"
-        })
 
-    }
+        else {
 
-    else if (quantity !== 0 && side == "sell") {
+            if (OrderBookwithQuantity.ask[price]) {
+                OrderBookwithQuantity.ask[price] += quantity;
+            }
+            else
+                OrderBookwithQuantity.ask[price] = quantity;
 
-        if (OrderBookwithQuantity.ask[price]) {
-            OrderBookwithQuantity.ask[price] += quantity;
+            Orderbook.ask.push({
+                price: price,
+                quantity: quantity,
+                orderId: orderid,
+                side: "ask"
+            })
+
         }
-        else
-            OrderBookwithQuantity.ask[price] = quantity;
-
-        Orderbook.ask.push({
-            price: price,
-            quantity: quantity,
-            orderId: orderid,
-            side: "ask"
-        })
-
     }
-
 
     return { status: "Accepted", executedQty: MaximumFillAmount, fills: [] }
 }

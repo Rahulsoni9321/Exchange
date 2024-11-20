@@ -47,72 +47,96 @@ app.post("/api/v1/order", (req, res) => __awaiter(void 0, void 0, void 0, functi
     if (status == "Rejected") {
         return res.json({
             message: "Order cannot be executed as there is no liquidity.",
-            executedQty
+            executedQty, fills
         });
     }
     console.log(orederbook_1.OrderBookwithQuantity);
     console.log(orederbook_1.Orderbook);
     return res.json({
-        OrderId: orderid,
+        status, executedQty, fills
     });
 }));
 function getOrderId() {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 function fillOrder(orderid, quantity, price, side, kind) {
-    const executedQty = 0;
+    let executedQty = 0;
     const fills = [];
     const MaximumFillAmount = getFillAmount(quantity, side, price);
-    console.log(MaximumFillAmount);
     if (MaximumFillAmount < quantity && kind === "ioc") {
         return { status: 'Rejected', executedQty: MaximumFillAmount, fills: [] };
     }
     if (side === "buy") {
         orederbook_1.Orderbook.ask.forEach((o) => {
-            if (o.price <= price) {
-                quantity -= Math.min(o.quantity, quantity);
-                if (quantity == 0) {
-                    fills.push({
-                        quantity: quantity,
-                        side: "buy",
-                        tradeId: GLOBAL_TRADE_ID++
-                    });
+            if (o.price <= price && quantity > 0) {
+                const filledQuantity = Math.min(o.quantity, quantity);
+                executedQty += filledQuantity;
+                quantity -= filledQuantity;
+                o.quantity -= filledQuantity;
+                orederbook_1.OrderBookwithQuantity.ask[o.price] -= filledQuantity;
+                fills.push({
+                    quantity: filledQuantity,
+                    side: "buy",
+                    tradeId: GLOBAL_TRADE_ID++
+                });
+                if (o.quantity === 0) {
+                    orederbook_1.Orderbook.ask.splice(orederbook_1.Orderbook.ask.indexOf(o), 1);
+                }
+                if (orederbook_1.OrderBookwithQuantity.ask[o.price] === 0) {
+                    delete orederbook_1.OrderBookwithQuantity.ask[o.price];
                 }
             }
         });
     }
     else {
         orederbook_1.Orderbook.bid.forEach((o) => {
-            if (o.price >= price) {
-                quantity -= Math.min(o.quantity, quantity);
+            if (o.price >= price && quantity > 0) {
+                const filledQuantity = Math.min(o.quantity, quantity);
+                executedQty += filledQuantity;
+                quantity -= filledQuantity;
+                o.quantity -= filledQuantity;
+                orederbook_1.OrderBookwithQuantity.bids[o.price] -= filledQuantity;
+                fills.push({
+                    quantity: filledQuantity,
+                    side: "sell",
+                    tradeId: GLOBAL_TRADE_ID++
+                });
+                if (o.quantity === 0) {
+                    orederbook_1.Orderbook.bid.splice(orederbook_1.Orderbook.bid.indexOf(o), 1);
+                }
+                if (orederbook_1.OrderBookwithQuantity.bids[o.price] === 0) {
+                    delete orederbook_1.OrderBookwithQuantity.bids[o.price];
+                }
             }
         });
     }
-    if (quantity !== 0 && side == "buy") {
-        if (orederbook_1.OrderBookwithQuantity.bids[price]) {
-            orederbook_1.OrderBookwithQuantity.bids[price] += quantity;
+    if (quantity !== 0) {
+        if (side == "buy") {
+            if (orederbook_1.OrderBookwithQuantity.bids[price]) {
+                orederbook_1.OrderBookwithQuantity.bids[price] += quantity;
+            }
+            else
+                orederbook_1.OrderBookwithQuantity.bids[price] = quantity;
+            orederbook_1.Orderbook.bid.push({
+                price: price,
+                quantity: quantity,
+                orderId: orderid,
+                side: "bid"
+            });
         }
-        else
-            orederbook_1.OrderBookwithQuantity.bids[price] = quantity;
-        orederbook_1.Orderbook.bid.push({
-            price: price,
-            quantity: quantity,
-            orderId: orderid,
-            side: "bid"
-        });
-    }
-    else if (quantity !== 0 && side == "sell") {
-        if (orederbook_1.OrderBookwithQuantity.ask[price]) {
-            orederbook_1.OrderBookwithQuantity.ask[price] += quantity;
+        else {
+            if (orederbook_1.OrderBookwithQuantity.ask[price]) {
+                orederbook_1.OrderBookwithQuantity.ask[price] += quantity;
+            }
+            else
+                orederbook_1.OrderBookwithQuantity.ask[price] = quantity;
+            orederbook_1.Orderbook.ask.push({
+                price: price,
+                quantity: quantity,
+                orderId: orderid,
+                side: "ask"
+            });
         }
-        else
-            orederbook_1.OrderBookwithQuantity.ask[price] = quantity;
-        orederbook_1.Orderbook.ask.push({
-            price: price,
-            quantity: quantity,
-            orderId: orderid,
-            side: "ask"
-        });
     }
     return { status: "Accepted", executedQty: MaximumFillAmount, fills: [] };
 }
